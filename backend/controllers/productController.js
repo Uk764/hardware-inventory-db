@@ -356,32 +356,22 @@ const createProduct = async (req, res) => {
 };
 
 // ================================================
-// FUNCTION 5: UPDATE PRODUCT
+// FUNCTION 5: UPDATE PRODUCT (FIXED)
 // Route: PUT /api/products/:id
 // ================================================
 const updateProduct = async (req, res) => {
   try {
     const { id } = req.params;
     const {
-      name,
-      description,
-      category_id,
-      supplier_id,
-      cost_price,
-      selling_price,
-      mrp,
-      gst_rate,
-      hsn_code,
-      minimum_stock,
-      unit,
-      barcode,
-      is_active
+      name, description, category_id, supplier_id,
+      cost_price, selling_price, mrp,
+      gst_rate, hsn_code,
+      minimum_stock, unit, barcode, is_active
     } = req.body;
 
     // Check product exists
     const existing = await pool.query(
-      'SELECT * FROM products WHERE id = $1',
-      [id]
+      'SELECT * FROM products WHERE id = $1', [id]
     );
 
     if (existing.rows.length === 0) {
@@ -391,13 +381,15 @@ const updateProduct = async (req, res) => {
       });
     }
 
+    const current = existing.rows[0];
+
     // Check barcode conflict
-    if (barcode) {
-      const barcodeExists = await pool.query(
+    if (barcode && barcode !== current.barcode) {
+      const conflict = await pool.query(
         'SELECT id FROM products WHERE barcode = $1 AND id != $2',
         [barcode, id]
       );
-      if (barcodeExists.rows.length > 0) {
+      if (conflict.rows.length > 0) {
         return res.status(400).json({
           success: false,
           message: 'Another product with this barcode already exists'
@@ -405,38 +397,39 @@ const updateProduct = async (req, res) => {
       }
     }
 
+    // Use existing values as fallback if new value not provided
     const result = await pool.query(
       `UPDATE products SET
-        name          = COALESCE($1, name),
-        description   = COALESCE($2, description),
-        category_id   = COALESCE($3, category_id),
-        supplier_id   = COALESCE($4, supplier_id),
-        cost_price    = COALESCE($5, cost_price),
-        selling_price = COALESCE($6, selling_price),
-        mrp           = COALESCE($7, mrp),
-        gst_rate      = COALESCE($8, gst_rate),
-        hsn_code      = COALESCE($9, hsn_code),
-        minimum_stock = COALESCE($10, minimum_stock),
-        unit          = COALESCE($11, unit),
-        barcode       = COALESCE($12, barcode),
-        is_active     = COALESCE($13, is_active),
+        name          = $1,
+        description   = $2,
+        category_id   = $3,
+        supplier_id   = $4,
+        cost_price    = $5,
+        selling_price = $6,
+        mrp           = $7,
+        gst_rate      = $8,
+        hsn_code      = $9,
+        minimum_stock = $10,
+        unit          = $11,
+        barcode       = $12,
+        is_active     = $13,
         updated_at    = NOW()
        WHERE id = $14
        RETURNING *`,
       [
-        name ? name.trim() : null,
-        description,
-        category_id,
-        supplier_id,
-        cost_price,
-        selling_price,
-        mrp,
-        gst_rate,
-        hsn_code,
-        minimum_stock,
-        unit,
-        barcode,
-        is_active,
+        name                || current.name,
+        description         !== undefined ? description       : current.description,
+        category_id !== undefined && category_id !== '' ? parseInt(category_id) : current.category_id,
+        supplier_id !== undefined && supplier_id !== '' ? parseInt(supplier_id) : current.supplier_id,
+        cost_price  !== undefined && cost_price  !== '' ? parseFloat(cost_price)  : current.cost_price,
+        selling_price !== undefined && selling_price !== '' ? parseFloat(selling_price) : current.selling_price,
+        mrp         !== undefined && mrp         !== '' ? parseFloat(mrp)         : current.mrp,
+        gst_rate    !== undefined && gst_rate    !== '' ? parseFloat(gst_rate)    : current.gst_rate,
+        hsn_code    !== undefined && hsn_code    !== '' ? hsn_code                : current.hsn_code,
+        minimum_stock !== undefined && minimum_stock !== '' ? parseInt(minimum_stock) : current.minimum_stock,
+        unit                || current.unit,
+        barcode     !== undefined && barcode     !== '' ? barcode                 : current.barcode,
+        is_active   !== undefined                       ? is_active               : current.is_active,
         id
       ]
     );
@@ -448,10 +441,10 @@ const updateProduct = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Update product error:', error);
+    console.error('Update product error:', error.message);
     res.status(500).json({
       success: false,
-      message: 'Server error while updating product'
+      message: 'Server error while updating product: ' + error.message
     });
   }
 };

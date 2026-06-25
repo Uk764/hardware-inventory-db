@@ -47,13 +47,15 @@ const authRoutes     = require('./routes/authRoutes');
 const categoryRoutes = require('./routes/categoryRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
 const productRoutes  = require('./routes/productRoutes');
+const billingRoutes  = require('./routes/billingRoutes');
 
 app.use('/api/auth',       authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/suppliers',  supplierRoutes);
 app.use('/api/products',   productRoutes);
+app.use('/api/billing',    billingRoutes);
 
-// Health check route
+// Health check
 app.get('/', (req, res) => {
   res.json({
     success: true,
