@@ -86,7 +86,6 @@ hardware-store/
 │
 └── README.md
 ```
-
 ## Installation
 
 ### Clone Repository
