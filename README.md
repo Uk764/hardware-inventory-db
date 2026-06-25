@@ -116,7 +116,6 @@ DB_NAME=hardware_inventory_db
 
 JWT_SECRET=your_secret_key
 ```
-
 Start Backend:
 
 ```bash
