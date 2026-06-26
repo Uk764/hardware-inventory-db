@@ -48,12 +48,24 @@ const categoryRoutes = require('./routes/categoryRoutes');
 const supplierRoutes = require('./routes/supplierRoutes');
 const productRoutes  = require('./routes/productRoutes');
 const billingRoutes  = require('./routes/billingRoutes');
+const reportsRoutes  = require('./routes/reportsRoutes');
 
 app.use('/api/auth',       authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/suppliers',  supplierRoutes);
 app.use('/api/products',   productRoutes);
 app.use('/api/billing',    billingRoutes);
+app.use('/api/reports',    reportsRoutes);
+
+// Health check
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: '🏪 Hardware Store API is running!',
+    version: '1.0.0',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Health check
 app.get('/', (req, res) => {

@@ -1,19 +1,13 @@
 // pdfController.js
-// Generates professional PDF invoices
-// Uses PDFKit library
+// Generates professional PDF invoices — FIXED VERSION
 
 const PDFDocument = require('pdfkit');
 const pool        = require('../config/db');
 
-// ================================================
-// GENERATE PDF INVOICE
-// Route: GET /api/billing/invoice/:id/pdf
-// ================================================
 const generateInvoicePDF = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // ── Fetch invoice with items ─────────────────
     const invoiceResult = await pool.query(
       `SELECT i.*,
               u.name AS created_by_name,
@@ -47,325 +41,317 @@ const generateInvoicePDF = async (req, res) => {
     const invoice = invoiceResult.rows[0];
     const items   = invoice.items || [];
 
-    // ── Create PDF Document ──────────────────────
+    // ── Create PDF ───────────────────────────────
     const doc = new PDFDocument({
       size:    'A4',
       margins: { top: 50, bottom: 50, left: 50, right: 50 }
     });
 
-    // Set response headers so browser downloads/shows PDF
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
       `inline; filename="Invoice-${invoice.invoice_number}.pdf"`
     );
-
-    // Pipe PDF to response
     doc.pipe(res);
 
-    // ── COLORS ──────────────────────────────────
-    const PRIMARY   = '#2563eb'; // Blue
-    const DARK      = '#1f2937'; // Dark gray
-    const GRAY      = '#6b7280'; // Medium gray
-    const LIGHTGRAY = '#f3f4f6'; // Light gray
-    const GREEN     = '#16a34a'; // Green
+    // ── COLORS ───────────────────────────────────
+    const PRIMARY   = '#2563eb';
+    const DARK      = '#1f2937';
+    const GRAY      = '#6b7280';
+    const LIGHTGRAY = '#f3f4f6';
+    const GREEN     = '#16a34a';
+    const WHITE     = '#ffffff';
 
-    // ── HEADER SECTION ───────────────────────────
-    // Blue header background
-    doc.rect(0, 0, doc.page.width, 120)
-       .fill(PRIMARY);
+    const pageW = doc.page.width;
+    const pageH = doc.page.height;
 
-    // Store Name
-    doc.fontSize(24)
+    // ── HEADER BACKGROUND ────────────────────────
+    doc.rect(0, 0, pageW, 130).fill(PRIMARY);
+
+    // Store Name — NO emoji, clean text
+    doc.fontSize(22)
        .font('Helvetica-Bold')
-       .fillColor('white')
-       .text('🏪 HARDWARE STORE', 50, 30);
+       .fillColor(WHITE)
+       .text('HARDWARE STORE', 50, 28);
 
-    // Store Details
+    // Store tagline
     doc.fontSize(9)
        .font('Helvetica')
-       .fillColor('white')
-       .text('Complete Hardware & Electrical Solutions', 50, 60)
-       .text('📍 123 Main Road, Your City - 400001', 50, 75)
-       .text('📞 +91 98765 43210  |  📧 info@hardwarestore.com', 50, 90)
-       .text('GSTIN: 27AAPFU0939F1ZV', 50, 105);
+       .fillColor(WHITE)
+       .text('Complete Hardware & Electrical Solutions', 50, 56)
+       .text('123 Main Road, Your City - 400001', 50, 70)
+       .text('Phone: +91 98765 43219  |  Email: infy@hardwarestore.com', 50, 84)
+       .text('GSTIN: 37AAPFU0939F1ZV', 50, 98);
 
-    // INVOICE label on right
-    doc.fontSize(28)
+    // INVOICE label — right side
+    doc.fontSize(30)
        .font('Helvetica-Bold')
-       .fillColor('white')
-       .text('INVOICE', 400, 35, { align: 'right', width: 145 });
+       .fillColor(WHITE)
+       .text('INVOICE', 350, 28, { width: 195, align: 'right' });
 
     doc.fontSize(10)
        .font('Helvetica')
-       .fillColor('white')
-       .text(invoice.invoice_number, 400, 70, { align: 'right', width: 145 });
+       .fillColor(WHITE)
+       .text(invoice.invoice_number, 350, 68, { width: 195, align: 'right' });
 
-    // ── INVOICE INFO BOX ─────────────────────────
-    doc.rect(50, 135, doc.page.width - 100, 80)
-       .fill(LIGHTGRAY);
+    // ── BILL TO + INVOICE INFO BOX ───────────────
+    doc.rect(50, 145, pageW - 100, 90).fill(LIGHTGRAY);
 
-    // Left side - Customer info
-    doc.fontSize(9)
+    // Left — Customer
+    doc.fontSize(8)
        .font('Helvetica-Bold')
        .fillColor(GRAY)
-       .text('BILL TO:', 65, 148);
+       .text('BILL TO:', 65, 158);
 
-    doc.fontSize(11)
+    doc.fontSize(12)
        .font('Helvetica-Bold')
        .fillColor(DARK)
-       .text(invoice.customer_name || 'Walk-in Customer', 65, 162);
+       .text(invoice.customer_name || 'Walk-in Customer', 65, 173);
 
     if (invoice.customer_phone) {
       doc.fontSize(9)
          .font('Helvetica')
          .fillColor(GRAY)
-         .text(`📞 ${invoice.customer_phone}`, 65, 178);
+         .text('Phone: ' + invoice.customer_phone, 65, 191);
     }
 
     if (invoice.customer_gstin) {
       doc.fontSize(9)
          .font('Helvetica')
          .fillColor(GRAY)
-         .text(`GSTIN: ${invoice.customer_gstin}`, 65, 192);
+         .text('GSTIN: ' + invoice.customer_gstin, 65,
+           invoice.customer_phone ? 205 : 191);
     }
 
-    // Right side - Invoice details
-    const rightCol = 380;
+    // Right — Invoice Details
+    const rx = 360;
 
     doc.fontSize(9)
        .font('Helvetica-Bold')
        .fillColor(GRAY)
-       .text('INVOICE DATE:', rightCol, 148)
-       .text('PAYMENT METHOD:', rightCol, 165)
-       .text('STATUS:', rightCol, 182);
+       .text('INVOICE DATE:',    rx, 158)
+       .text('PAYMENT METHOD:',  rx, 175)
+       .text('STATUS:',          rx, 192);
+
+    const invoiceDate = new Date(invoice.created_at)
+      .toLocaleDateString('en-IN', {
+        day: '2-digit', month: 'long', year: 'numeric'
+      });
 
     doc.fontSize(9)
        .font('Helvetica')
        .fillColor(DARK)
-       .text(
-         new Date(invoice.created_at).toLocaleDateString('en-IN', {
-           day: '2-digit', month: 'long', year: 'numeric'
-         }),
-         rightCol + 100, 148
-       )
-       .text(
-         (invoice.payment_method || 'cash').toUpperCase(),
-         rightCol + 100, 165
-       );
+       .text(invoiceDate,
+             rx + 110, 158, { width: 80 })
+       .text((invoice.payment_method || 'CASH').toUpperCase(),
+             rx + 110, 175, { width: 80 });
 
     doc.fontSize(9)
        .font('Helvetica-Bold')
        .fillColor(GREEN)
-       .text('PAID ✓', rightCol + 100, 182);
+       .text('PAID', rx + 110, 192, { width: 80 });
 
-    // ── ITEMS TABLE ───────────────────────────────
-    const tableTop  = 235;
-    const colWidths = {
-      no:    30,
-      name:  195,
-      sku:   70,
-      qty:   40,
-      price: 70,
-      gst:   55,
-      total: 75,
+    // ── ITEMS TABLE HEADER ───────────────────────
+    const tableTop = 252;
+
+    doc.rect(50, tableTop, pageW - 100, 24).fill(PRIMARY);
+
+    // Column positions
+    const cols = {
+      no:    { x: 55,  w: 28  },
+      name:  { x: 83,  w: 185 },
+      sku:   { x: 268, w: 75  },
+      qty:   { x: 343, w: 38  },
+      price: { x: 381, w: 65  },
+      gst:   { x: 446, w: 75  },
+      total: { x: 521, w: 74  },
     };
 
-    // Table header background
-    doc.rect(50, tableTop, doc.page.width - 100, 22)
-       .fill(PRIMARY);
-
-    // Table header text
     doc.fontSize(8)
        .font('Helvetica-Bold')
-       .fillColor('white');
+       .fillColor(WHITE);
 
-    let xPos = 55;
-    doc.text('#',           xPos, tableTop + 7, { width: colWidths.no });
-    xPos += colWidths.no;
-    doc.text('PRODUCT',     xPos, tableTop + 7, { width: colWidths.name });
-    xPos += colWidths.name;
-    doc.text('SKU',         xPos, tableTop + 7, { width: colWidths.sku });
-    xPos += colWidths.sku;
-    doc.text('QTY',         xPos, tableTop + 7, { width: colWidths.qty });
-    xPos += colWidths.qty;
-    doc.text('PRICE',       xPos, tableTop + 7, { width: colWidths.price });
-    xPos += colWidths.price;
-    doc.text('GST',         xPos, tableTop + 7, { width: colWidths.gst });
-    xPos += colWidths.gst;
-    doc.text('TOTAL',       xPos, tableTop + 7, { width: colWidths.total, align: 'right' });
+    doc.text('#',       cols.no.x,    tableTop + 8, { width: cols.no.w    });
+    doc.text('PRODUCT', cols.name.x,  tableTop + 8, { width: cols.name.w  });
+    doc.text('SKU',     cols.sku.x,   tableTop + 8, { width: cols.sku.w   });
+    doc.text('QTY',     cols.qty.x,   tableTop + 8, { width: cols.qty.w   });
+    doc.text('PRICE',   cols.price.x, tableTop + 8, { width: cols.price.w });
+    doc.text('GST',     cols.gst.x,   tableTop + 8, { width: cols.gst.w   });
+    doc.text('TOTAL',   cols.total.x, tableTop + 8, {
+      width: cols.total.w, align: 'right'
+    });
 
-    // Table rows
-    let yPos = tableTop + 22;
+    // ── TABLE ROWS ───────────────────────────────
+    let y = tableTop + 24;
 
-    items.forEach((item, index) => {
-      // Alternating row colors
-      if (index % 2 === 0) {
-        doc.rect(50, yPos, doc.page.width - 100, 22)
-           .fill('#f9fafb');
+    items.forEach((item, i) => {
+      const rowH = 24;
+
+      // Alternating background
+      if (i % 2 === 0) {
+        doc.rect(50, y, pageW - 100, rowH).fill('#f9fafb');
       }
 
       doc.fontSize(8)
          .font('Helvetica')
          .fillColor(DARK);
 
-      xPos = 55;
-      doc.text(String(index + 1), xPos, yPos + 7, { width: colWidths.no });
-      xPos += colWidths.no;
+      // Row number
+      doc.text(String(i + 1), cols.no.x, y + 7, { width: cols.no.w });
 
-      // Product name (truncate if too long)
-      const productName = item.product_name.length > 28
-        ? item.product_name.substring(0, 28) + '...'
+      // Product name — truncate if too long
+      const pName = item.product_name.length > 26
+        ? item.product_name.substring(0, 26) + '..'
         : item.product_name;
-      doc.text(productName, xPos, yPos + 7, { width: colWidths.name });
-      xPos += colWidths.name;
+      doc.text(pName, cols.name.x, y + 7, { width: cols.name.w });
 
-      doc.text(item.sku || '—', xPos, yPos + 7, { width: colWidths.sku });
-      xPos += colWidths.sku;
+      // SKU
+      doc.text(item.sku || '-', cols.sku.x, y + 7, { width: cols.sku.w });
 
-      doc.text(String(item.quantity), xPos, yPos + 7, { width: colWidths.qty });
-      xPos += colWidths.qty;
+      // Quantity
+      doc.text(String(item.quantity), cols.qty.x, y + 7, {
+        width: cols.qty.w
+      });
 
+      // Unit price — use Rs. instead of rupee symbol
       doc.text(
-        `₹${parseFloat(item.unit_price).toFixed(2)}`,
-        xPos, yPos + 7, { width: colWidths.price }
+        'Rs.' + parseFloat(item.unit_price).toFixed(2),
+        cols.price.x, y + 7,
+        { width: cols.price.w }
       );
-      xPos += colWidths.price;
 
+      // GST
       doc.text(
-        `${item.gst_rate}% (₹${parseFloat(item.gst_amount).toFixed(2)})`,
-        xPos, yPos + 7, { width: colWidths.gst }
+        item.gst_rate + '% (Rs.' + parseFloat(item.gst_amount).toFixed(2) + ')',
+        cols.gst.x, y + 7,
+        { width: cols.gst.w }
       );
-      xPos += colWidths.gst;
 
+      // Total — bold
       doc.font('Helvetica-Bold')
          .text(
-           `₹${parseFloat(item.total_price).toFixed(2)}`,
-           xPos, yPos + 7, { width: colWidths.total, align: 'right' }
+           'Rs.' + parseFloat(item.total_price).toFixed(2),
+           cols.total.x, y + 7,
+           { width: cols.total.w, align: 'right' }
          );
 
-      // Bottom border for each row
-      doc.moveTo(50, yPos + 22)
-         .lineTo(doc.page.width - 50, yPos + 22)
-         .stroke('#e5e7eb');
+      // Row bottom border
+      doc.moveTo(50, y + rowH)
+         .lineTo(pageW - 50, y + rowH)
+         .strokeColor('#e5e7eb')
+         .lineWidth(0.5)
+         .stroke();
 
-      yPos += 22;
+      y += rowH;
     });
 
-    // ── TOTALS SECTION ───────────────────────────
-    yPos += 10;
-    const totalsX = 380;
-    const totalsW = doc.page.width - 50 - totalsX;
+    // ── TOTALS ───────────────────────────────────
+    y += 12;
 
-    // Subtotal
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor(GRAY)
-       .text('Subtotal:', totalsX, yPos, { width: 80 })
-       .font('Helvetica')
-       .fillColor(DARK)
-       .text(
-         `₹${parseFloat(invoice.subtotal).toFixed(2)}`,
-         totalsX + 80, yPos,
-         { width: totalsW - 80, align: 'right' }
-       );
+    const tX = 380;
+    const tW = pageW - 50 - tX;
+    const lW = 90;
+    const vW = tW - lW;
 
-    yPos += 18;
-
-    // GST
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor(GRAY)
-       .text('Total GST:', totalsX, yPos, { width: 80 })
-       .fillColor(DARK)
-       .text(
-         `₹${parseFloat(invoice.total_gst).toFixed(2)}`,
-         totalsX + 80, yPos,
-         { width: totalsW - 80, align: 'right' }
-       );
-
-    yPos += 18;
-
-    // Discount
-    if (parseFloat(invoice.discount) > 0) {
+    // Helper to draw a total row
+    const drawTotalRow = (label, value, bold = false, color = DARK) => {
       doc.fontSize(9)
-         .font('Helvetica')
-         .fillColor(GREEN)
-         .text('Discount:', totalsX, yPos, { width: 80 })
-         .text(
-           `- ₹${parseFloat(invoice.discount).toFixed(2)}`,
-           totalsX + 80, yPos,
-           { width: totalsW - 80, align: 'right' }
-         );
-      yPos += 18;
+         .font(bold ? 'Helvetica-Bold' : 'Helvetica')
+         .fillColor(GRAY)
+         .text(label, tX, y, { width: lW });
+
+      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
+         .fillColor(color)
+         .text(value, tX + lW, y, { width: vW, align: 'right' });
+
+      y += 18;
+    };
+
+    drawTotalRow(
+      'Subtotal:',
+      'Rs.' + parseFloat(invoice.subtotal).toFixed(2)
+    );
+
+    drawTotalRow(
+      'Total GST:',
+      'Rs.' + parseFloat(invoice.total_gst).toFixed(2)
+    );
+
+    if (parseFloat(invoice.discount) > 0) {
+      drawTotalRow(
+        'Discount:',
+        '- Rs.' + parseFloat(invoice.discount).toFixed(2),
+        false, GREEN
+      );
     }
 
-    // Divider line
-    doc.moveTo(totalsX, yPos)
-       .lineTo(doc.page.width - 50, yPos)
-       .stroke(PRIMARY);
+    // Divider
+    doc.moveTo(tX, y)
+       .lineTo(pageW - 50, y)
+       .strokeColor(PRIMARY)
+       .lineWidth(1)
+       .stroke();
+    y += 6;
 
-    yPos += 8;
+    // Grand total box
+    doc.rect(tX, y, tW, 30).fill(PRIMARY);
 
-    // Grand Total
-    doc.rect(totalsX, yPos, totalsW, 28)
-       .fill(PRIMARY);
-
-    doc.fontSize(12)
+    doc.fontSize(13)
        .font('Helvetica-Bold')
-       .fillColor('white')
-       .text('TOTAL:', totalsX + 5, yPos + 8, { width: 80 })
+       .fillColor(WHITE)
+       .text('TOTAL:', tX + 6, y + 9, { width: lW });
+
+    doc.fontSize(13)
+       .font('Helvetica-Bold')
+       .fillColor(WHITE)
        .text(
-         `₹${parseFloat(invoice.total_amount).toFixed(2)}`,
-         totalsX + 80, yPos + 8,
-         { width: totalsW - 85, align: 'right' }
+         'Rs.' + parseFloat(invoice.total_amount).toFixed(2),
+         tX + lW, y + 9,
+         { width: vW - 6, align: 'right' }
        );
 
-    yPos += 48;
+    y += 50;
 
     // ── FOOTER ───────────────────────────────────
-    // Thank you note
-    doc.fontSize(11)
+    doc.fontSize(12)
        .font('Helvetica-Bold')
        .fillColor(PRIMARY)
-       .text('Thank you for your business!', 50, yPos, {
+       .text('Thank you for your business!', 50, y, {
          align: 'center',
-         width: doc.page.width - 100
+         width: pageW - 100
        });
 
-    yPos += 18;
+    y += 20;
 
     doc.fontSize(8)
        .font('Helvetica')
        .fillColor(GRAY)
        .text(
          'This is a computer generated invoice and does not require a signature.',
-         50, yPos,
-         { align: 'center', width: doc.page.width - 100 }
+         50, y,
+         { align: 'center', width: pageW - 100 }
        );
 
-    yPos += 25;
+    y += 25;
 
     // Terms box
-    doc.rect(50, yPos, doc.page.width - 100, 45)
-       .fill(LIGHTGRAY);
+    doc.rect(50, y, pageW - 100, 50).fill(LIGHTGRAY);
 
-    doc.fontSize(8)
+    doc.fontSize(8.5)
        .font('Helvetica-Bold')
        .fillColor(DARK)
-       .text('Terms & Conditions:', 60, yPos + 8);
+       .text('Terms & Conditions:', 62, y + 8);
 
-    doc.fontSize(7.5)
+    doc.fontSize(8)
        .font('Helvetica')
        .fillColor(GRAY)
        .text(
          '1. Goods once sold will not be taken back.\n' +
          '2. All disputes subject to local jurisdiction only.\n' +
          '3. E. & O.E.',
-         60, yPos + 20
+         62, y + 22
        );
 
-    // Finalize PDF
     doc.end();
 
   } catch (error) {
@@ -373,7 +359,7 @@ const generateInvoicePDF = async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({
         success: false,
-        message: 'Failed to generate PDF'
+        message: 'Failed to generate PDF: ' + error.message
       });
     }
   }
