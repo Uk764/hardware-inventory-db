@@ -33,6 +33,32 @@ const generateSKU = async (categoryId) => {
     return `HW-${Date.now()}`;
   }
 };
+// ================================================
+// HELPER: Generate Product Code (HW000001 format)
+// This is used for barcode generation
+// ================================================
+const generateProductCode = async () => {
+  try {
+    const result = await pool.query(
+      `SELECT product_code FROM products 
+       WHERE product_code IS NOT NULL 
+       ORDER BY product_code DESC 
+       LIMIT 1`
+    );
+
+    if (result.rows.length === 0) {
+      return 'HW000001';
+    }
+
+    const lastCode = result.rows[0].product_code;
+    const number   = parseInt(lastCode.replace('HW', '')) + 1;
+    return 'HW' + String(number).padStart(6, '0');
+
+  } catch (error) {
+    // Fallback using timestamp
+    return 'HW' + String(Date.now()).slice(-6);
+  }
+};
 
 // ================================================
 // FUNCTION 1: GET ALL PRODUCTS (with pagination,
@@ -204,42 +230,46 @@ const getProduct = async (req, res) => {
 };
 
 // ================================================
-// FUNCTION 3: GET PRODUCT BY BARCODE
+// FUNCTION 3: GET PRODUCT BY BARCODE OR PRODUCT CODE
 // Route: GET /api/products/barcode/:barcode
-// Used by the POS billing system scanner
+// Searches both barcode AND product_code fields
 // ================================================
 const getProductByBarcode = async (req, res) => {
   try {
     const { barcode } = req.params;
 
     const result = await pool.query(
-      `SELECT 
-        p.*,
-        c.name AS category_name
+      `SELECT p.*, c.name AS category_name
        FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
-       WHERE p.barcode = $1 AND p.is_active = true`,
+       WHERE (p.barcode = $1 OR p.product_code = $1)
+         AND p.is_active = true`,
       [barcode]
     );
 
     if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Product not found with this barcode'
+        message: 'Product not found with this barcode or product code'
       });
     }
 
+    // Include stock status in response
+    const product = result.rows[0];
+    product.stock_status = product.current_stock <= 0
+      ? 'out_of_stock'
+      : product.current_stock <= product.minimum_stock
+        ? 'low_stock'
+        : 'in_stock';
+
     res.status(200).json({
       success: true,
-      data: result.rows[0]
+      data: product
     });
 
   } catch (error) {
-    console.error('Get by barcode error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
+    console.error('Barcode error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
@@ -294,37 +324,37 @@ const createProduct = async (req, res) => {
       }
     }
 
-    // Auto-generate SKU
-    const sku = await generateSKU(category_id);
+    // Auto generate SKU and Product Code
+    const sku          = await generateSKU(category_id);
+    const product_code = await generateProductCode();
 
     // Insert product into database
     const result = await pool.query(
       `INSERT INTO products (
-        sku, barcode, name, description,
-        category_id, supplier_id,
-        cost_price, selling_price, mrp,
-        gst_rate, hsn_code,
-        current_stock, minimum_stock, unit
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6,
-        $7, $8, $9, $10, $11,
-        $12, $13, $14
-      ) RETURNING *`,
+          sku, product_code, barcode, name, description,
+          category_id, supplier_id,
+          cost_price, selling_price, mrp,
+          gst_rate, hsn_code,
+          current_stock, minimum_stock, unit
+       ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+       ) RETURNING *`,
       [
         sku,
-        barcode || null,
+        product_code,
+        barcode        || null,
         name.trim(),
-        description || null,
-        category_id || null,
-        supplier_id || null,
-        cost_price || 0,
+        description    || null,
+        category_id    || null,
+        supplier_id    || null,
+        cost_price     || 0,
         selling_price,
-        mrp || selling_price,
-        gst_rate || 18.00,
-        hsn_code || null,
-        current_stock || 0,
-        minimum_stock || 10,
-        unit || 'piece'
+        mrp            || selling_price,
+        gst_rate       || 18.00,
+        hsn_code       || null,
+        current_stock  || 0,
+        minimum_stock  || 10,
+        unit           || 'piece'
       ]
     );
 
