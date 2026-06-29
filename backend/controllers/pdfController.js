@@ -1,5 +1,4 @@
-// pdfController.js
-// Generates professional PDF invoices — FIXED VERSION
+// pdfController.js — Professional PDF Invoice Generator
 
 const PDFDocument = require('pdfkit');
 const pool        = require('../config/db');
@@ -41,10 +40,12 @@ const generateInvoicePDF = async (req, res) => {
     const invoice = invoiceResult.rows[0];
     const items   = invoice.items || [];
 
-    // ── Create PDF ───────────────────────────────
+    // ── Setup PDF ────────────────────────────────
     const doc = new PDFDocument({
-      size:    'A4',
-      margins: { top: 50, bottom: 50, left: 50, right: 50 }
+      size:        'A4',
+      margin:      0,
+      autoFirstPage: true,
+      bufferPages: true,
     });
 
     res.setHeader('Content-Type', 'application/pdf');
@@ -54,303 +55,352 @@ const generateInvoicePDF = async (req, res) => {
     );
     doc.pipe(res);
 
-    // ── COLORS ───────────────────────────────────
-    const PRIMARY   = '#2563eb';
-    const DARK      = '#1f2937';
-    const GRAY      = '#6b7280';
-    const LIGHTGRAY = '#f3f4f6';
-    const GREEN     = '#16a34a';
-    const WHITE     = '#ffffff';
+    // ── Constants ────────────────────────────────
+    const C = {
+      primary:   '#1a56db',
+      dark:      '#111827',
+      gray:      '#6b7280',
+      lightgray: '#f9fafb',
+      bordergray:'#e5e7eb',
+      green:     '#15803d',
+      white:     '#ffffff',
+      margin:    40,
+      pageW:     595.28,
+      pageH:     841.89,
+    };
 
-    const pageW = doc.page.width;
-    const pageH = doc.page.height;
+    const contentW = C.pageW - C.margin * 2;
 
-    // ── HEADER BACKGROUND ────────────────────────
-    doc.rect(0, 0, pageW, 130).fill(PRIMARY);
+    // ── HELPER FUNCTIONS ─────────────────────────
 
-    // Store Name — NO emoji, clean text
-    doc.fontSize(22)
-       .font('Helvetica-Bold')
-       .fillColor(WHITE)
-       .text('HARDWARE STORE', 50, 28);
+    // Draw filled rectangle
+    const fillRect = (x, y, w, h, color) => {
+      doc.rect(x, y, w, h).fill(color);
+    };
 
-    // Store tagline
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor(WHITE)
-       .text('Complete Hardware & Electrical Solutions', 50, 56)
-       .text('123 Main Road, Your City - 400001', 50, 70)
-       .text('Phone: +91 98765 43219  |  Email: infy@hardwarestore.com', 50, 84)
-       .text('GSTIN: 37AAPFU0939F1ZV', 50, 98);
+    // Draw text at exact position
+    const drawText = (text, x, y, options = {}) => {
+      doc.fontSize(options.size || 9)
+         .font(options.bold ? 'Helvetica-Bold' : 'Helvetica')
+         .fillColor(options.color || C.dark)
+         .text(String(text), x, y, {
+           width:     options.width  || undefined,
+           align:     options.align  || 'left',
+           lineBreak: options.wrap   || false,
+         });
+    };
 
-    // INVOICE label — right side
-    doc.fontSize(30)
-       .font('Helvetica-Bold')
-       .fillColor(WHITE)
-       .text('INVOICE', 350, 28, { width: 195, align: 'right' });
+    // Draw horizontal line
+    const drawLine = (x1, y1, x2, color = C.bordergray, width = 0.5) => {
+      doc.moveTo(x1, y1)
+         .lineTo(x2, y1)
+         .strokeColor(color)
+         .lineWidth(width)
+         .stroke();
+    };
 
-    doc.fontSize(10)
-       .font('Helvetica')
-       .fillColor(WHITE)
-       .text(invoice.invoice_number, 350, 68, { width: 195, align: 'right' });
+    // Format amount
+    const fmt = (n) => 'Rs. ' + parseFloat(n || 0).toFixed(2);
 
-    // ── BILL TO + INVOICE INFO BOX ───────────────
-    doc.rect(50, 145, pageW - 100, 90).fill(LIGHTGRAY);
+    // ── SECTION 1: HEADER ────────────────────────
+    fillRect(0, 0, C.pageW, 115, C.primary);
 
-    // Left — Customer
-    doc.fontSize(8)
-       .font('Helvetica-Bold')
-       .fillColor(GRAY)
-       .text('BILL TO:', 65, 158);
+    // Store name
+    drawText('HARDWARE STORE', C.margin, 22, {
+      size: 24, bold: true, color: C.white
+    });
 
-    doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .fillColor(DARK)
-       .text(invoice.customer_name || 'Walk-in Customer', 65, 173);
+    // Store details — left column
+    const storeLines = [
+      'Complete Hardware & Electrical Solutions',
+      '123 Main Road, Your City - 400001',
+      'Phone: +91 98765 43210',
+      'Email: info@hardwarestore.com',
+      'GSTIN: 27AAPFU0939F1ZV',
+    ];
+    storeLines.forEach((line, i) => {
+      drawText(line, C.margin, 52 + i * 12, {
+        size: 8, color: '#bfdbfe'
+      });
+    });
 
-    if (invoice.customer_phone) {
-      doc.fontSize(9)
-         .font('Helvetica')
-         .fillColor(GRAY)
-         .text('Phone: ' + invoice.customer_phone, 65, 191);
-    }
+    // INVOICE + number — right column
+    drawText('INVOICE', C.pageW - C.margin - 160, 25, {
+      size: 26, bold: true, color: C.white,
+      width: 160, align: 'right'
+    });
 
-    if (invoice.customer_gstin) {
-      doc.fontSize(9)
-         .font('Helvetica')
-         .fillColor(GRAY)
-         .text('GSTIN: ' + invoice.customer_gstin, 65,
-           invoice.customer_phone ? 205 : 191);
-    }
-
-    // Right — Invoice Details
-    const rx = 360;
-
-    doc.fontSize(9)
-       .font('Helvetica-Bold')
-       .fillColor(GRAY)
-       .text('INVOICE DATE:',    rx, 158)
-       .text('PAYMENT METHOD:',  rx, 175)
-       .text('STATUS:',          rx, 192);
+    drawText(invoice.invoice_number, C.pageW - C.margin - 160, 58, {
+      size: 10, color: '#bfdbfe',
+      width: 160, align: 'right'
+    });
 
     const invoiceDate = new Date(invoice.created_at)
       .toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'long', year: 'numeric'
+        day: '2-digit', month: 'short', year: 'numeric'
       });
 
-    doc.fontSize(9)
-       .font('Helvetica')
-       .fillColor(DARK)
-       .text(invoiceDate,
-             rx + 110, 158, { width: 80 })
-       .text((invoice.payment_method || 'CASH').toUpperCase(),
-             rx + 110, 175, { width: 80 });
-
-    doc.fontSize(9)
-       .font('Helvetica-Bold')
-       .fillColor(GREEN)
-       .text('PAID', rx + 110, 192, { width: 80 });
-
-    // ── ITEMS TABLE HEADER ───────────────────────
-    const tableTop = 252;
-
-    doc.rect(50, tableTop, pageW - 100, 24).fill(PRIMARY);
-
-    // Column positions
-    const cols = {
-      no:    { x: 55,  w: 28  },
-      name:  { x: 83,  w: 185 },
-      sku:   { x: 268, w: 75  },
-      qty:   { x: 343, w: 38  },
-      price: { x: 381, w: 65  },
-      gst:   { x: 446, w: 75  },
-      total: { x: 521, w: 74  },
-    };
-
-    doc.fontSize(8)
-       .font('Helvetica-Bold')
-       .fillColor(WHITE);
-
-    doc.text('#',       cols.no.x,    tableTop + 8, { width: cols.no.w    });
-    doc.text('PRODUCT', cols.name.x,  tableTop + 8, { width: cols.name.w  });
-    doc.text('SKU',     cols.sku.x,   tableTop + 8, { width: cols.sku.w   });
-    doc.text('QTY',     cols.qty.x,   tableTop + 8, { width: cols.qty.w   });
-    doc.text('PRICE',   cols.price.x, tableTop + 8, { width: cols.price.w });
-    doc.text('GST',     cols.gst.x,   tableTop + 8, { width: cols.gst.w   });
-    doc.text('TOTAL',   cols.total.x, tableTop + 8, {
-      width: cols.total.w, align: 'right'
+    drawText(invoiceDate, C.pageW - C.margin - 160, 74, {
+      size: 9, color: '#bfdbfe',
+      width: 160, align: 'right'
     });
 
-    // ── TABLE ROWS ───────────────────────────────
-    let y = tableTop + 24;
+    // ── SECTION 2: BILL TO + INVOICE META ────────
+    const boxY  = 125;
+    const boxH  = 85;
+    const halfW = (contentW - 10) / 2;
 
-    items.forEach((item, i) => {
-      const rowH = 24;
+    // Left box — Bill To
+    fillRect(C.margin, boxY, halfW, boxH, C.lightgray);
 
-      // Alternating background
-      if (i % 2 === 0) {
-        doc.rect(50, y, pageW - 100, rowH).fill('#f9fafb');
-      }
-
-      doc.fontSize(8)
-         .font('Helvetica')
-         .fillColor(DARK);
-
-      // Row number
-      doc.text(String(i + 1), cols.no.x, y + 7, { width: cols.no.w });
-
-      // Product name — truncate if too long
-      const pName = item.product_name.length > 26
-        ? item.product_name.substring(0, 26) + '..'
-        : item.product_name;
-      doc.text(pName, cols.name.x, y + 7, { width: cols.name.w });
-
-      // SKU
-      doc.text(item.sku || '-', cols.sku.x, y + 7, { width: cols.sku.w });
-
-      // Quantity
-      doc.text(String(item.quantity), cols.qty.x, y + 7, {
-        width: cols.qty.w
-      });
-
-      // Unit price — use Rs. instead of rupee symbol
-      doc.text(
-        'Rs.' + parseFloat(item.unit_price).toFixed(2),
-        cols.price.x, y + 7,
-        { width: cols.price.w }
-      );
-
-      // GST
-      doc.text(
-        item.gst_rate + '% (Rs.' + parseFloat(item.gst_amount).toFixed(2) + ')',
-        cols.gst.x, y + 7,
-        { width: cols.gst.w }
-      );
-
-      // Total — bold
-      doc.font('Helvetica-Bold')
-         .text(
-           'Rs.' + parseFloat(item.total_price).toFixed(2),
-           cols.total.x, y + 7,
-           { width: cols.total.w, align: 'right' }
-         );
-
-      // Row bottom border
-      doc.moveTo(50, y + rowH)
-         .lineTo(pageW - 50, y + rowH)
-         .strokeColor('#e5e7eb')
-         .lineWidth(0.5)
-         .stroke();
-
-      y += rowH;
+    drawText('BILL TO', C.margin + 12, boxY + 10, {
+      size: 7.5, bold: true, color: C.gray
     });
 
-    // ── TOTALS ───────────────────────────────────
-    y += 12;
-
-    const tX = 380;
-    const tW = pageW - 50 - tX;
-    const lW = 90;
-    const vW = tW - lW;
-
-    // Helper to draw a total row
-    const drawTotalRow = (label, value, bold = false, color = DARK) => {
-      doc.fontSize(9)
-         .font(bold ? 'Helvetica-Bold' : 'Helvetica')
-         .fillColor(GRAY)
-         .text(label, tX, y, { width: lW });
-
-      doc.font(bold ? 'Helvetica-Bold' : 'Helvetica')
-         .fillColor(color)
-         .text(value, tX + lW, y, { width: vW, align: 'right' });
-
-      y += 18;
-    };
-
-    drawTotalRow(
-      'Subtotal:',
-      'Rs.' + parseFloat(invoice.subtotal).toFixed(2)
+    drawText(
+      invoice.customer_name || 'Walk-in Customer',
+      C.margin + 12, boxY + 24,
+      { size: 11, bold: true, color: C.dark }
     );
 
-    drawTotalRow(
-      'Total GST:',
-      'Rs.' + parseFloat(invoice.total_gst).toFixed(2)
-    );
-
-    if (parseFloat(invoice.discount) > 0) {
-      drawTotalRow(
-        'Discount:',
-        '- Rs.' + parseFloat(invoice.discount).toFixed(2),
-        false, GREEN
+    if (invoice.customer_phone) {
+      drawText(
+        'Phone: ' + invoice.customer_phone,
+        C.margin + 12, boxY + 42,
+        { size: 8.5, color: C.gray }
       );
     }
 
-    // Divider
-    doc.moveTo(tX, y)
-       .lineTo(pageW - 50, y)
-       .strokeColor(PRIMARY)
-       .lineWidth(1)
-       .stroke();
-    y += 6;
+    if (invoice.customer_gstin) {
+      drawText(
+        'GSTIN: ' + invoice.customer_gstin,
+        C.margin + 12, boxY + (invoice.customer_phone ? 56 : 42),
+        { size: 8.5, color: C.gray }
+      );
+    }
+
+    // Right box — Invoice Meta
+    const rightBoxX = C.margin + halfW + 10;
+    fillRect(rightBoxX, boxY, halfW, boxH, C.lightgray);
+
+    const metaRows = [
+      { label: 'Invoice No.',  value: invoice.invoice_number },
+      { label: 'Date',         value: invoiceDate },
+      { label: 'Payment',      value: (invoice.payment_method || 'CASH').toUpperCase() },
+      { label: 'Status',       value: 'PAID', green: true },
+    ];
+
+    metaRows.forEach((row, i) => {
+      const ry = boxY + 12 + i * 17;
+      drawText(row.label + ':', rightBoxX + 12, ry, {
+        size: 8.5, bold: true, color: C.gray
+      });
+      drawText(row.value, rightBoxX + 95, ry, {
+        size: 8.5,
+        color: row.green ? C.green : C.dark,
+        bold:  row.green || false,
+      });
+    });
+
+    // ── SECTION 3: ITEMS TABLE ───────────────────
+    const tY    = boxY + boxH + 18; // Table starts here
+    const tHead = 22;               // Header row height
+    const tRow  = 22;               // Data row height
+
+    // Define columns: x = start position, w = width
+    const COL = {
+      no:    { x: C.margin,       w: 25,  label: '#',       align: 'center' },
+      name:  { x: C.margin + 25,  w: 170, label: 'PRODUCT', align: 'left'   },
+      sku:   { x: C.margin + 195, w: 75,  label: 'SKU',     align: 'left'   },
+      qty:   { x: C.margin + 270, w: 35,  label: 'QTY',     align: 'center' },
+      price: { x: C.margin + 305, w: 65,  label: 'PRICE',   align: 'right'  },
+      gst:   { x: C.margin + 370, w: 60,  label: 'GST',     align: 'center' },
+      total: { x: C.margin + 430, w: 75,  label: 'TOTAL',   align: 'right'  },
+    };
+
+    // Table header background
+    fillRect(C.margin, tY, contentW, tHead, C.primary);
+
+    // Table header labels
+    Object.values(COL).forEach(col => {
+      drawText(col.label, col.x + 4, tY + 7, {
+        size: 7.5, bold: true, color: C.white,
+        width: col.w - 8, align: col.align
+      });
+    });
+
+    // Table rows
+    let rowY = tY + tHead;
+    let currentPage = 1;
+
+    items.forEach((item, i) => {
+      // Auto page break — if near bottom, add new page
+      if (rowY > C.pageH - 180) {
+        doc.addPage({ size: 'A4', margin: 0 });
+        rowY = 40;
+        currentPage++;
+
+        // Redraw table header on new page
+        fillRect(C.margin, rowY, contentW, tHead, C.primary);
+        Object.values(COL).forEach(col => {
+          drawText(col.label, col.x + 4, rowY + 7, {
+            size: 7.5, bold: true, color: C.white,
+            width: col.w - 8, align: col.align
+          });
+        });
+        rowY += tHead;
+      }
+
+      // Row background (alternating)
+      fillRect(
+        C.margin, rowY, contentW, tRow,
+        i % 2 === 0 ? C.lightgray : C.white
+      );
+
+      // Row data
+      const td = (text, col, opts = {}) => {
+        drawText(text, col.x + 4, rowY + 7, {
+          size:  8,
+          width: col.w - 8,
+          align: col.align,
+          ...opts
+        });
+      };
+
+      const pName = item.product_name.length > 24
+        ? item.product_name.substring(0, 24) + '..'
+        : item.product_name;
+
+      td(String(i + 1),                             COL.no);
+      td(pName,                                     COL.name);
+      td(item.sku || '-',                           COL.sku,   { size: 7.5, color: C.gray });
+      td(String(item.quantity),                     COL.qty);
+      td('Rs.' + parseFloat(item.unit_price).toFixed(2), COL.price);
+      td(item.gst_rate + '%',                       COL.gst);
+      td('Rs.' + parseFloat(item.total_price).toFixed(2), COL.total, { bold: true });
+
+      // Bottom border
+      drawLine(C.margin, rowY + tRow, C.margin + contentW);
+
+      rowY += tRow;
+    });
+
+    // ── SECTION 4: TOTALS ────────────────────────
+    rowY += 10;
+
+    // Check page break for totals
+    if (rowY > C.pageH - 160) {
+      doc.addPage({ size: 'A4', margin: 0 });
+      rowY = 40;
+    }
+
+    const totalsX = C.margin + contentW - 200; // Right aligned block
+    const totalsW = 200;
+    const labelW  = 100;
+    const valueW  = 95;
+    const totalsLineH = 20;
+
+    const drawTotalLine = (label, value, bold = false, color = C.dark, bg = null) => {
+      if (bg) fillRect(totalsX, rowY, totalsW, totalsLineH + 4, bg);
+
+      drawText(label, totalsX + 8, rowY + (bg ? 6 : 4), {
+        size:  9,
+        bold,
+        color: C.gray,
+        width: labelW
+      });
+
+      drawText(value, totalsX + labelW, rowY + (bg ? 6 : 4), {
+        size:  9,
+        bold,
+        color,
+        width: valueW,
+        align: 'right'
+      });
+
+      rowY += bg ? totalsLineH + 8 : totalsLineH;
+    };
+
+    // Divider above totals
+    drawLine(totalsX, rowY, totalsX + totalsW, C.primary, 1);
+    rowY += 8;
+
+    drawTotalLine('Subtotal:', fmt(invoice.subtotal));
+    drawTotalLine('Total GST:', fmt(invoice.total_gst));
+
+    if (parseFloat(invoice.discount) > 0) {
+      drawTotalLine(
+        'Discount:',
+        '- ' + fmt(invoice.discount),
+        false, C.green
+      );
+    }
+
+    // Divider before grand total
+    drawLine(totalsX, rowY, totalsX + totalsW, C.bordergray, 0.5);
+    rowY += 6;
 
     // Grand total box
-    doc.rect(tX, y, tW, 30).fill(PRIMARY);
+    drawTotalLine(
+      'GRAND TOTAL:',
+      fmt(invoice.total_amount),
+      true, C.white, C.primary
+    );
 
-    doc.fontSize(13)
-       .font('Helvetica-Bold')
-       .fillColor(WHITE)
-       .text('TOTAL:', tX + 6, y + 9, { width: lW });
+    // ── SECTION 5: FOOTER ────────────────────────
+    rowY += 20;
 
-    doc.fontSize(13)
-       .font('Helvetica-Bold')
-       .fillColor(WHITE)
-       .text(
-         'Rs.' + parseFloat(invoice.total_amount).toFixed(2),
-         tX + lW, y + 9,
-         { width: vW - 6, align: 'right' }
-       );
+    // Check page break for footer
+    if (rowY > C.pageH - 100) {
+      doc.addPage({ size: 'A4', margin: 0 });
+      rowY = 40;
+    }
 
-    y += 50;
+    // Thank you
+    drawText('Thank you for your business!', C.margin, rowY, {
+      size: 12, bold: true, color: C.primary,
+      width: contentW, align: 'center'
+    });
 
-    // ── FOOTER ───────────────────────────────────
-    doc.fontSize(12)
-       .font('Helvetica-Bold')
-       .fillColor(PRIMARY)
-       .text('Thank you for your business!', 50, y, {
-         align: 'center',
-         width: pageW - 100
-       });
+    rowY += 18;
 
-    y += 20;
+    drawText(
+      'This is a computer generated invoice and does not require a signature.',
+      C.margin, rowY,
+      { size: 8, color: C.gray, width: contentW, align: 'center' }
+    );
 
-    doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor(GRAY)
-       .text(
-         'This is a computer generated invoice and does not require a signature.',
-         50, y,
-         { align: 'center', width: pageW - 100 }
-       );
-
-    y += 25;
+    rowY += 20;
 
     // Terms box
-    doc.rect(50, y, pageW - 100, 50).fill(LIGHTGRAY);
+    fillRect(C.margin, rowY, contentW, 55, C.lightgray);
 
-    doc.fontSize(8.5)
-       .font('Helvetica-Bold')
-       .fillColor(DARK)
-       .text('Terms & Conditions:', 62, y + 8);
+    drawText('Terms & Conditions:', C.margin + 12, rowY + 10, {
+      size: 8.5, bold: true, color: C.dark
+    });
 
-    doc.fontSize(8)
-       .font('Helvetica')
-       .fillColor(GRAY)
-       .text(
-         '1. Goods once sold will not be taken back.\n' +
-         '2. All disputes subject to local jurisdiction only.\n' +
-         '3. E. & O.E.',
-         62, y + 22
-       );
+    const terms = [
+      '1. Goods once sold will not be taken back.',
+      '2. All disputes are subject to local jurisdiction only.',
+      '3. E. & O.E.',
+    ];
+
+    terms.forEach((t, i) => {
+      drawText(t, C.margin + 12, rowY + 24 + i * 10, {
+        size: 8, color: C.gray
+      });
+    });
+
+    // ── Page numbers ─────────────────────────────
+    const pages = doc.bufferedPageRange();
+    for (let p = 0; p < pages.count; p++) {
+      doc.switchToPage(p);
+      drawText(
+        `Page ${p + 1} of ${pages.count}`,
+        C.margin, C.pageH - 20,
+        { size: 7.5, color: C.gray, width: contentW, align: 'right' }
+      );
+    }
 
     doc.end();
 
