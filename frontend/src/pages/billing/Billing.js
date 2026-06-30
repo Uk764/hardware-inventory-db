@@ -437,22 +437,27 @@ const Billing = () => {
 // ── Print Thermal Receipt ────────────────────
   const handlePrintReceipt = async (width) => {
     try {
-      // Fetch full invoice with items (success response from
-      // createInvoice already includes items, but ensure freshness)
       const res = await api.get(`/billing/invoice/${successInvoice.id}`);
-      setFullInvoiceForReceipt(res.data.data);
-      setReceiptWidth(width);
 
-      // Wait for DOM to update with receipt content, then print
+      if (!res.data.data.items || res.data.data.items.length === 0) {
+        toast.error('Invoice has no items to print');
+        return;
+      }
+
+      setReceiptWidth(width);
+      setFullInvoiceForReceipt(res.data.data);
+
+      document.body.classList.add('printing-receipt');
+
       setTimeout(() => {
-        document.body.classList.add('printing-receipt');
         window.print();
         setTimeout(() => {
           document.body.classList.remove('printing-receipt');
         }, 500);
-      }, 200);
+      }, 400);
 
     } catch (error) {
+      console.error('Receipt print error:', error);
       toast.error('Failed to load receipt data');
     }
   };

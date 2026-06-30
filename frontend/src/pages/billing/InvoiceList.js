@@ -92,9 +92,13 @@ const InvoiceList = () => {
       setReceiptWidth(width);
       setReceiptInvoice(res.data.data);
 
-      // Wait for React to render the portal content before printing
+      document.body.classList.add('printing-receipt');
+
       setTimeout(() => {
         window.print();
+        setTimeout(() => {
+          document.body.classList.remove('printing-receipt');
+        }, 500);
       }, 400);
 
     } catch (error) {

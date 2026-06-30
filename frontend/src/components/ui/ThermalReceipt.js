@@ -2,13 +2,43 @@
 // Renders a thermal-printer-friendly receipt using a React Portal
 // so it's completely isolated from the rest of the page during print
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
 const formatCurrency = (amount) =>
   parseFloat(amount || 0).toFixed(2);
 
 const ThermalReceipt = ({ invoice, width = '80mm' }) => {
+
+  // ── All hooks must run unconditionally, every render ──
+  useEffect(() => {
+    if (!invoice) return; // safe to bail inside the effect itself
+
+    const styleId = 'thermal-receipt-page-size';
+    let styleTag = document.getElementById(styleId);
+
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = styleId;
+      document.head.appendChild(styleTag);
+    }
+
+    styleTag.textContent = `
+      @media print {
+        @page {
+          size: ${width} auto;
+          margin: 0;
+        }
+      }
+    `;
+
+    return () => {
+      const tag = document.getElementById(styleId);
+      if (tag) tag.remove();
+    };
+  }, [width, invoice]);
+
+  // ── Early return AFTER all hooks ──
   if (!invoice) return null;
 
   const items = invoice.items || [];
@@ -151,7 +181,6 @@ const ThermalReceipt = ({ invoice, width = '80mm' }) => {
     </div>
   );
 
-  // Render directly into document.body, outside the React app tree
   return createPortal(content, document.body);
 };
 

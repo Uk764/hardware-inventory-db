@@ -96,32 +96,15 @@
 }
 
 @media print {
-  html, body {
-    height: auto !important;
-    overflow: visible !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  body > #root {
+  body.printing-receipt #root {
     display: none !important;
   }
 
-  #thermal-receipt {
+  body.printing-receipt #thermal-receipt {
     display: block !important;
     visibility: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
     margin: 0 !important;
-  }
-
-  @page {
-    size: 80mm auto;
-    margin: 0;
-  }
-
-  @page receipt-58mm {
-    size: 58mm auto;
-    margin: 0;
   }
 }
