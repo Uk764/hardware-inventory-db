@@ -238,11 +238,163 @@ const getCategorySales = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+// ================================================
+// FUNCTION 6: EXPORT REPORTS TO EXCEL
+// Route: GET /api/reports/export
+// Generates a multi-sheet Excel file
+// ================================================
+const exportReportsExcel = async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
 
+    // ── Sheet 1: Sales Summary (last 7 days) ──
+    const salesResult = await pool.query(
+      `SELECT
+        TO_CHAR(d::date, 'DD Mon YYYY') AS date,
+        COALESCE(COUNT(i.id), 0)           AS invoices,
+        COALESCE(SUM(i.subtotal), 0)       AS subtotal,
+        COALESCE(SUM(i.total_gst), 0)      AS gst,
+        COALESCE(SUM(i.discount), 0)       AS discount,
+        COALESCE(SUM(i.total_amount), 0)   AS total_revenue
+       FROM generate_series(
+              CURRENT_DATE - INTERVAL '6 days',
+              CURRENT_DATE,
+              INTERVAL '1 day'
+            ) AS d
+       LEFT JOIN invoices i ON DATE(i.created_at) = d::date
+       GROUP BY d
+       ORDER BY d ASC`
+    );
+
+    // ── Sheet 2: Top Selling Products ──
+    const topProductsResult = await pool.query(
+      `SELECT
+        p.name              AS "Product Name",
+        p.sku                AS "SKU",
+        c.name               AS "Category",
+        SUM(ii.quantity)     AS "Units Sold",
+        SUM(ii.total_price)  AS "Total Revenue"
+       FROM invoice_items ii
+       JOIN products p ON p.id = ii.product_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       GROUP BY p.id, p.name, p.sku, c.name
+       ORDER BY SUM(ii.quantity) DESC
+       LIMIT 50`
+    );
+
+    // ── Sheet 3: Category Wise Sales ──
+    const categoryResult = await pool.query(
+      `SELECT
+        COALESCE(c.name, 'Uncategorized') AS "Category",
+        SUM(ii.quantity)                   AS "Units Sold",
+        SUM(ii.total_price)                AS "Total Revenue"
+       FROM invoice_items ii
+       JOIN products p ON p.id = ii.product_id
+       LEFT JOIN categories c ON c.id = p.category_id
+       GROUP BY c.name
+       ORDER BY SUM(ii.total_price) DESC`
+    );
+
+    // ── Sheet 4: All Invoices ──
+    const invoicesResult = await pool.query(
+      `SELECT
+        i.invoice_number      AS "Invoice No",
+        i.customer_name       AS "Customer",
+        i.customer_phone      AS "Phone",
+        TO_CHAR(i.created_at, 'DD Mon YYYY HH24:MI') AS "Date",
+        i.payment_method       AS "Payment Method",
+        i.subtotal              AS "Subtotal",
+        i.total_gst             AS "GST",
+        i.discount              AS "Discount",
+        i.total_amount           AS "Total Amount"
+       FROM invoices i
+       ORDER BY i.created_at DESC
+       LIMIT 500`
+    );
+
+    // ── Sheet 5: Current Inventory ──
+    const inventoryResult = await pool.query(
+      `SELECT
+        p.product_code       AS "Product Code",
+        p.sku                 AS "SKU",
+        p.name                AS "Product Name",
+        c.name                AS "Category",
+        p.cost_price           AS "Cost Price",
+        p.selling_price        AS "Selling Price",
+        p.current_stock        AS "Current Stock",
+        p.minimum_stock        AS "Min Stock",
+        CASE
+          WHEN p.current_stock <= 0 THEN 'Out of Stock'
+          WHEN p.current_stock <= p.minimum_stock THEN 'Low Stock'
+          ELSE 'In Stock'
+        END                    AS "Status"
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE p.is_active = true
+       ORDER BY p.name ASC`
+    );
+
+    // ── Build Workbook ──
+    const wb = XLSX.utils.book_new();
+
+    // Format sales summary sheet
+    const salesSheetData = salesResult.rows.map(r => ({
+      'Date':           r.date,
+      'Invoices':       parseInt(r.invoices),
+      'Subtotal (Rs.)': parseFloat(r.subtotal).toFixed(2),
+      'GST (Rs.)':      parseFloat(r.gst).toFixed(2),
+      'Discount (Rs.)': parseFloat(r.discount).toFixed(2),
+      'Total Revenue (Rs.)': parseFloat(r.total_revenue).toFixed(2),
+    }));
+
+    const ws1 = XLSX.utils.json_to_sheet(salesSheetData);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Sales Summary (7 Days)');
+
+    const ws2 = XLSX.utils.json_to_sheet(topProductsResult.rows);
+    XLSX.utils.book_append_sheet(wb, ws2, 'Top Products');
+
+    const ws3 = XLSX.utils.json_to_sheet(categoryResult.rows);
+    XLSX.utils.book_append_sheet(wb, ws3, 'Category Sales');
+
+    const ws4 = XLSX.utils.json_to_sheet(invoicesResult.rows);
+    XLSX.utils.book_append_sheet(wb, ws4, 'All Invoices');
+
+    const ws5 = XLSX.utils.json_to_sheet(inventoryResult.rows);
+    XLSX.utils.book_append_sheet(wb, ws5, 'Current Inventory');
+
+    // Auto-size columns roughly
+    [ws1, ws2, ws3, ws4, ws5].forEach(ws => {
+      const cols = Object.keys(ws).filter(k => !k.startsWith('!'));
+      ws['!cols'] = Array(15).fill({ wch: 18 });
+    });
+
+    // Generate buffer
+    const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="Hardware-Store-Report-${new Date().toISOString().split('T')[0]}.xlsx"`
+    );
+
+    res.send(buffer);
+
+  } catch (error) {
+    console.error('Excel export error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to export report: ' + error.message
+    });
+  }
+};
 module.exports = {
   getDashboardSummary,
   getSalesChart,
   getTopProducts,
   getMonthlyRevenue,
   getCategorySales,
+  exportReportsExcel,
 };

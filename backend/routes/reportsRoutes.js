@@ -8,6 +8,7 @@ const {
   getTopProducts,
   getMonthlyRevenue,
   getCategorySales,
+  exportReportsExcel,
 } = require('../controllers/reportsController');
 
 router.use(protect);
@@ -17,5 +18,6 @@ router.get('/sales',          getSalesChart);
 router.get('/top-products',   getTopProducts);
 router.get('/monthly',        getMonthlyRevenue);
 router.get('/category-sales', getCategorySales);
+router.get('/export',         exportReportsExcel);
 
 module.exports = router;
