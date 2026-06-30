@@ -310,6 +310,18 @@ const createProduct = async (req, res) => {
         message: 'Selling price is required and must be greater than 0'
       });
     }
+    // Check for duplicate product name (case-insensitive)
+    const nameExists = await pool.query(
+      'SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND is_active = true',
+      [name.trim()]
+    );
+
+    if (nameExists.rows.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Product "${name.trim()}" already exists`
+      });
+    }
 
     // Check for duplicate barcode
     if (barcode) {
@@ -413,6 +425,20 @@ const updateProduct = async (req, res) => {
     }
 
     const current = existing.rows[0];
+    
+    // Check for duplicate name (excluding current product)
+    if (name && name.trim() !== current.name) {
+      const nameExists = await pool.query(
+        'SELECT id FROM products WHERE LOWER(name) = LOWER($1) AND id != $2 AND is_active = true',
+        [name.trim(), id]
+      );
+      if (nameExists.rows.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `Product "${name.trim()}" already exists`
+        });
+      }
+    }
 
     // Check barcode conflict
     if (barcode && barcode !== current.barcode) {
