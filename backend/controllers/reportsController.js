@@ -92,47 +92,40 @@ const getDashboardSummary = async (req, res) => {
 };
 
 // ================================================
-// FUNCTION 2: LAST 7 DAYS SALES CHART DATA
+// FUNCTION 2: LAST 7 DAYS SALES CHART DATA (FIXED)
 // Route: GET /api/reports/sales
-// Returns: daily sales for line chart
 // ================================================
 const getSalesChart = async (req, res) => {
   try {
+    // Let PostgreSQL do all date math — avoids timezone mismatch
     const result = await pool.query(
       `SELECT
-        TO_CHAR(created_at, 'DD Mon') AS day,
-        DATE(created_at)              AS date,
-        COUNT(*)                      AS invoices,
-        COALESCE(SUM(total_amount), 0) AS revenue,
-        COALESCE(SUM(total_gst), 0)    AS gst
-       FROM invoices
-       WHERE created_at >= NOW() - INTERVAL '7 days'
-       GROUP BY DATE(created_at), TO_CHAR(created_at, 'DD Mon')
-       ORDER BY DATE(created_at) ASC`
+        TO_CHAR(d::date, 'DD Mon') AS day,
+        d::date                    AS date,
+        COALESCE(COUNT(i.id), 0)           AS invoices,
+        COALESCE(SUM(i.total_amount), 0)   AS revenue,
+        COALESCE(SUM(i.total_gst), 0)      AS gst
+       FROM generate_series(
+              CURRENT_DATE - INTERVAL '6 days',
+              CURRENT_DATE,
+              INTERVAL '1 day'
+            ) AS d
+       LEFT JOIN invoices i
+              ON DATE(i.created_at) = d::date
+       GROUP BY d
+       ORDER BY d ASC`
     );
 
-    // Fill in missing days with 0
-    const last7Days = [];
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dateStr = date.toISOString().split('T')[0];
-      const dayStr  = date.toLocaleDateString('en-IN', {
-        day: '2-digit', month: 'short'
-      });
-
-      const found = result.rows.find(r => r.date === dateStr);
-      last7Days.push({
-        day:      dayStr,
-        revenue:  found ? parseFloat(found.revenue)  : 0,
-        invoices: found ? parseInt(found.invoices)   : 0,
-        gst:      found ? parseFloat(found.gst)      : 0,
-      });
-    }
+    const data = result.rows.map(r => ({
+      day:      r.day,
+      revenue:  parseFloat(r.revenue),
+      invoices: parseInt(r.invoices),
+      gst:      parseFloat(r.gst),
+    }));
 
     res.status(200).json({
       success: true,
-      data: last7Days
+      data
     });
 
   } catch (error) {
@@ -140,7 +133,6 @@ const getSalesChart = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
-
 // ================================================
 // FUNCTION 3: TOP SELLING PRODUCTS
 // Route: GET /api/reports/top-products

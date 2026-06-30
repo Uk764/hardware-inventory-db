@@ -125,6 +125,7 @@ const getProducts = async (req, res) => {
       `SELECT 
         p.id,
         p.sku,
+        p.product_code,
         p.barcode,
         p.name,
         p.description,
